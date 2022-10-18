@@ -7,11 +7,13 @@
     last_token/1,
     line/2,
     line/3,
+    get_char/3,
     range/3,
     split_at_line/2,
     tokens/1,
     apply_edits/2
 ]).
+-export([strip_comments/1]).
 
 -export_type([edit/0]).
 
@@ -33,6 +35,18 @@ line(Text, LineNum) ->
 line(Text, LineNum, ColumnNum) ->
     Line = line(Text, LineNum),
     binary:part(Line, {0, ColumnNum}).
+
+-spec get_char(text(), line_num(), column_num()) ->
+    {ok, char()} | {error, out_of_range}.
+get_char(Text, Line, Column) ->
+    LineStarts = line_starts(Text),
+    Pos = pos(LineStarts, {Line, Column}),
+    case Pos < size(Text) of
+        true ->
+            {ok, binary:at(Text, Pos)};
+        false ->
+            {error, out_of_range}
+    end.
 
 %% @doc Extract a snippet from a text, from [StartLoc..EndLoc).
 -spec range(text(), {line_num(), column_num()}, {line_num(), column_num()}) ->
@@ -131,6 +145,17 @@ ensure_string(Text) when is_binary(Text) ->
     els_utils:to_list(Text);
 ensure_string(Text) ->
     Text.
+
+-spec strip_comments(binary()) -> binary().
+strip_comments(Text) ->
+    lines_to_bin(
+        lists:map(
+            fun(Line) ->
+                hd(string:split(Line, "%"))
+            end,
+            bin_to_lines(Text)
+        )
+    ).
 
 %%==============================================================================
 %% Internal functions

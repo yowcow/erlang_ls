@@ -27,6 +27,7 @@
     textdocument_codeaction/2,
     textdocument_codelens/2,
     textdocument_rename/2,
+    textdocument_preparerename/2,
     textdocument_preparecallhierarchy/2,
     textdocument_semantictokens_full/2,
     textdocument_signaturehelp/2,
@@ -73,7 +74,7 @@ dispatch(<<"$/", Method/binary>>, Params, request, State) ->
         message => <<"Method not found: ", Method/binary>>
     },
     {error, Error, State};
-dispatch(Method, Params, _Type, State) ->
+dispatch(Method, Params, MessageType, State) ->
     Function = method_to_function_name(Method),
     ?LOG_DEBUG("Dispatching request [method=~p] [params=~p]", [Method, Params]),
     try
@@ -86,19 +87,24 @@ dispatch(Method, Params, _Type, State) ->
                 "Internal [type=~p] [error=~p] [stack=~p]",
                 [Type, Reason, Stack]
             ),
-            Error = #{
-                type => Type,
-                reason => Reason,
-                stack => Stack,
-                method => Method,
-                params => Params
-            },
-            ErrorMsg = els_utils:to_binary(lists:flatten(io_lib:format("~p", [Error]))),
-            ErrorResponse = #{
-                code => ?ERR_INTERNAL_ERROR,
-                message => <<"Internal Error: ", ErrorMsg/binary>>
-            },
-            {error, ErrorResponse, State}
+            case MessageType of
+                request ->
+                    Error = #{
+                        type => Type,
+                        reason => Reason,
+                        stack => Stack,
+                        method => Method,
+                        params => Params
+                    },
+                    ErrorMsg = els_utils:to_binary(lists:flatten(io_lib:format("~p", [Error]))),
+                    ErrorResponse = #{
+                        code => ?ERR_INTERNAL_ERROR,
+                        message => <<"Internal Error: ", ErrorMsg/binary>>
+                    },
+                    {error, ErrorResponse, State};
+                notification ->
+                    {noresponse, State}
+            end
     end.
 
 -spec do_dispatch(atom(), params(), els_server:state()) -> result().
@@ -301,9 +307,12 @@ completionitem_resolve(Params, State) ->
 -spec textdocument_definition(params(), els_server:state()) -> result().
 textdocument_definition(Params, State) ->
     Provider = els_definition_provider,
-    {response, Response} =
-        els_provider:handle_request(Provider, {definition, Params}),
-    {response, Response, State}.
+    case els_provider:handle_request(Provider, {definition, Params}) of
+        {response, Response} ->
+            {response, Response, State};
+        {async, Uri, Job} ->
+            {async, Uri, Job, State}
+    end.
 
 %%==============================================================================
 %% textDocument/references
@@ -312,9 +321,8 @@ textdocument_definition(Params, State) ->
 -spec textdocument_references(params(), els_server:state()) -> result().
 textdocument_references(Params, State) ->
     Provider = els_references_provider,
-    {response, Response} =
-        els_provider:handle_request(Provider, {references, Params}),
-    {response, Response, State}.
+    {async, Uri, Job} = els_provider:handle_request(Provider, {references, Params}),
+    {async, Uri, Job, State}.
 
 %%==============================================================================
 %% textDocument/documentHightlight
@@ -423,6 +431,16 @@ textdocument_rename(Params, State) ->
     Provider = els_rename_provider,
     {response, Response} =
         els_provider:handle_request(Provider, {rename, Params}),
+    {response, Response, State}.
+
+%%==============================================================================
+%% textDocument/prepareRename
+%%=============================================================================
+-spec textdocument_preparerename(params(), els_server:state()) -> result().
+textdocument_preparerename(Params, State) ->
+    Provider = els_prepare_rename_provider,
+    {response, Response} =
+        els_provider:handle_request(Provider, {prepare_rename, Params}),
     {response, Response, State}.
 
 %%==============================================================================
