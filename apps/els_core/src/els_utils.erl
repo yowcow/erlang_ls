@@ -22,6 +22,7 @@
     base64_encode_term/1,
     base64_decode_term/1,
     levenshtein_distance/2,
+    camel_case/1,
     jaro_distance/2,
     is_windows/0,
     system_tmp_dir/0
@@ -453,15 +454,18 @@ compose_node_name(Name, Type) ->
             true ->
                 Name;
             _ ->
-                {ok, HostName} = inet:gethostname(),
+                HostName = els_config_runtime:get_hostname(),
                 Name ++ [$@ | HostName]
         end,
     case Type of
         shortnames ->
             list_to_atom(NodeName);
         longnames ->
-            Domain = proplists:get_value(domain, inet:get_rc(), ""),
-            list_to_atom(NodeName ++ "." ++ Domain)
+            Domain = els_config_runtime:get_domain(),
+            case Domain of
+                "" -> list_to_atom(NodeName);
+                _ -> list_to_atom(NodeName ++ "." ++ Domain)
+            end
     end.
 
 %% @doc Given an MFA or a FA, return a printable version of the
@@ -483,6 +487,13 @@ base64_encode_term(Term) ->
 -spec base64_decode_term(binary()) -> any().
 base64_decode_term(Base64) ->
     binary_to_term(base64:decode(Base64)).
+
+-spec camel_case(binary() | string()) -> binary().
+camel_case(Str0) ->
+    %% Remove ''
+    Str = string:trim(Str0, both, "'"),
+    Words = [string:titlecase(Word) || Word <- string:lexemes(Str, "_")],
+    iolist_to_binary(Words).
 
 -spec levenshtein_distance(binary(), binary()) -> integer().
 levenshtein_distance(S, T) ->
@@ -713,5 +724,13 @@ jaro_distance_test_() ->
             0.6666666666666666
         )
     ].
+
+camel_case_test() ->
+    ?assertEqual(<<"">>, camel_case(<<"">>)),
+    ?assertEqual(<<"F">>, camel_case(<<"f">>)),
+    ?assertEqual(<<"Foo">>, camel_case(<<"foo">>)),
+    ?assertEqual(<<"FooBar">>, camel_case(<<"foo_bar">>)),
+    ?assertEqual(<<"FooBarBaz">>, camel_case(<<"foo_bar_baz">>)),
+    ?assertEqual(<<"FooBarBaz">>, camel_case(<<"'foo_bar_baz'">>)).
 
 -endif.
